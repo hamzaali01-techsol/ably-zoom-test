@@ -537,33 +537,76 @@ export function useZoomVideo() {
 
   /**
    * Start screen sharing
-   * @param {HTMLVideoElement} videoElement - Video element for screen share (required)
+   * @param {HTMLVideoElement|HTMLCanvasElement} element - Video or canvas element for screen share
    */
-  const startScreenShare = useCallback(async (videoElement) => {
+  const startScreenShare = useCallback(async (element) => {
     if (!streamRef.current) {
       setError('Not connected to a session');
       return false;
     }
 
     try {
-      // Zoom SDK requires video element for screen sharing
-      // (regardless of WebCodecs support status)
-      if (!videoElement || !(videoElement instanceof HTMLVideoElement)) {
-        setError('Video element required for screen sharing');
-        return false;
+      const currentUser = clientRef.current.getCurrentUserInfo();
+
+      // Check what element type the browser supports
+      const useVideoElement = streamRef.current.isStartShareScreenWithVideoElement?.() ?? true;
+      console.log(`🖥️ Browser supports video element for share: ${useVideoElement}`);
+
+      // Validate element type
+      if (useVideoElement) {
+        if (!element || !(element instanceof HTMLVideoElement)) {
+          console.error('Video element required but got:', element?.constructor?.name);
+          setError('Video element required for screen sharing on this browser');
+          return false;
+        }
+      } else {
+        if (!element || !(element instanceof HTMLCanvasElement)) {
+          console.error('Canvas element required but got:', element?.constructor?.name);
+          setError('Canvas element required for screen sharing on this browser');
+          return false;
+        }
       }
 
-      const currentUser = clientRef.current.getCurrentUserInfo();
+      console.log(`🖥️ Starting screen share with element type: ${element.constructor.name}`);
 
       // Start screen sharing with simultaneousShareView option
       // Per Zoom SDK docs: simultaneousShareView enables viewing multiple users' shares
       // Required when using setSharePrivilege(MultipleShare)
-      await streamRef.current.startShareScreen(videoElement, {
+      await streamRef.current.startShareScreen(element, {
         simultaneousShareView: true
       });
+
       setIsScreenSharing(true);
       isScreenSharingRef.current = true;
       console.log('✅ Screen sharing started successfully with simultaneousShareView');
+
+      // Monitor the MediaStream tracks for the own share preview
+      // This helps detect when tracks unexpectedly end (e.g., when another user starts sharing)
+      if (element instanceof HTMLVideoElement && element.srcObject) {
+        const mediaStream = element.srcObject;
+        const tracks = mediaStream.getTracks();
+        console.log(`🖥️ Monitoring ${tracks.length} MediaStream tracks for own share`);
+
+        tracks.forEach((track, idx) => {
+          console.log(`🖥️ Track ${idx}: kind=${track.kind}, readyState=${track.readyState}`);
+
+          // Monitor track ended event
+          track.addEventListener('ended', () => {
+            console.warn(`⚠️ Track ${idx} (${track.kind}) ENDED unexpectedly!`);
+            console.warn('⚠️ This may indicate another user started sharing and Zoom stopped your share.');
+            console.warn('⚠️ Or the share privilege is not set to MultipleShare.');
+
+            // Check if all tracks have ended
+            const allEnded = tracks.every(t => t.readyState === 'ended');
+            if (allEnded && isScreenSharingRef.current) {
+              console.warn('⚠️ All tracks ended - updating screen sharing state');
+              setIsScreenSharing(false);
+              isScreenSharingRef.current = false;
+              setScreenShares(prev => prev.filter(s => s.userId !== currentUser.userId));
+            }
+          });
+        });
+      }
 
       // Manually add current user to screenShares since events might not fire reliably
       setScreenShares(prev => {
@@ -581,6 +624,12 @@ export function useZoomVideo() {
       return true;
     } catch (err) {
       console.error('Failed to start screen share:', err);
+      console.error('Error details:', {
+        message: err.message,
+        type: err.type,
+        reason: err.reason,
+        code: err.code
+      });
       setError(`Start screen share failed: ${err.message || err.reason || 'Unknown error'}`);
       return false;
     }
@@ -617,42 +666,81 @@ export function useZoomVideo() {
   /**
    * Attach a screen share view for a specific user
    * @param {number} userId - The user ID whose screen share to render
-   * @param {HTMLElement} container - The container element to render the share in
+   * @param {HTMLElement} container - The container element (should be video-player-container)
+   * @returns {Promise<{success: boolean, element?: HTMLElement}>}
    */
   const attachScreenShareView = useCallback(async (userId, container) => {
     if (!streamRef.current) {
       console.error('Stream not available');
-      return false;
+      return { success: false };
     }
 
     try {
-      const videoElement = await streamRef.current.attachShareView(userId);
-      if (videoElement && container) {
-        container.appendChild(videoElement);
-        console.log(`Attached screen share view for user ${userId}`);
-        return true;
+      console.log(`📺 Calling stream.attachShareView(${userId})...`);
+
+      // attachShareView returns a video-player element that must be placed in a video-player-container
+      const videoPlayerElement = await streamRef.current.attachShareView(userId);
+
+      console.log(`📺 attachShareView returned:`, videoPlayerElement);
+      console.log(`📺 Element type:`, videoPlayerElement?.tagName);
+
+      if (videoPlayerElement && container) {
+        // Append the video-player element to the container
+        container.appendChild(videoPlayerElement);
+        console.log(`✅ Attached screen share view for user ${userId}`);
+
+        // IMPORTANT: The video-player element from Zoom SDK may need these attributes
+        // to ensure proper playback
+        if (videoPlayerElement.tagName === 'VIDEO' || videoPlayerElement.querySelector('video')) {
+          const videoEl = videoPlayerElement.tagName === 'VIDEO'
+            ? videoPlayerElement
+            : videoPlayerElement.querySelector('video');
+          if (videoEl) {
+            videoEl.setAttribute('autoplay', '');
+            videoEl.setAttribute('playsinline', '');
+            // Try to play in case autoplay is blocked
+            try {
+              await videoEl.play();
+            } catch (playErr) {
+              console.warn('Auto-play may be blocked:', playErr);
+            }
+          }
+        }
+
+        return { success: true, element: videoPlayerElement };
       }
-      return false;
+
+      console.warn(`📺 attachShareView returned falsy element or no container`);
+      return { success: false };
     } catch (err) {
-      console.error(`Failed to attach screen share view for user ${userId}:`, err);
-      return false;
+      console.error(`❌ Failed to attach screen share view for user ${userId}:`, err);
+      console.error('Error details:', {
+        message: err.message,
+        type: err.type,
+        reason: err.reason
+      });
+      return { success: false, error: err };
     }
   }, []);
 
   /**
    * Detach a screen share view for a specific user
+   * IMPORTANT: detachShareView returns the element, which must be removed from DOM
    * @param {number} userId - The user ID whose screen share to stop rendering
+   * @returns {Promise<HTMLElement|null>} The detached element (caller should remove from DOM)
    */
   const detachScreenShareView = useCallback(async (userId) => {
-    if (!streamRef.current) return false;
+    if (!streamRef.current) return null;
 
     try {
-      await streamRef.current.detachShareView(userId);
-      console.log(`Detached screen share view for user ${userId}`);
-      return true;
+      // Per Zoom SDK docs: detachShareView returns the element that was detached
+      // The caller is responsible for removing it from the DOM
+      const element = await streamRef.current.detachShareView(userId);
+      console.log(`🔌 Detached screen share view for user ${userId}, element:`, element);
+      return element;
     } catch (err) {
       console.error(`Failed to detach screen share view for user ${userId}:`, err);
-      return false;
+      return null;
     }
   }, []);
 

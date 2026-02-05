@@ -1002,9 +1002,12 @@ function SettingsPanel({ onClose }) {
 
 /**
  * Screen Share View Component - renders a participant's screen share
+ * IMPORTANT: Uses a separate status overlay instead of children inside video-player-container
+ * because Zoom SDK's attachShareView appends elements and React children interfere with it
  */
 function ScreenShareView({ userId, displayName, isCurrentUser, attachScreenShareView, detachScreenShareView }) {
   const containerRef = useRef(null);
+  const videoPlayerRef = useRef(null); // Keep reference to the video-player element for cleanup
   const [isAttaching, setIsAttaching] = useState(true);
   const [error, setError] = useState(null);
 
@@ -1022,19 +1025,24 @@ function ScreenShareView({ userId, displayName, isCurrentUser, attachScreenShare
       console.log(`📌 Attempting to attach share view for user ${userId} (${displayName})`);
 
       try {
-        // Don't clear innerHTML - it removes React's elements and causes errors
-        // Just append the video-player element returned by attachShareView
         setIsAttaching(true);
         setError(null);
 
-        const success = await attachScreenShareView(userId, containerRef.current);
+        // Clear any existing video-player elements first
+        const existingPlayers = containerRef.current.querySelectorAll('video-player');
+        existingPlayers.forEach(el => el.remove());
 
-        if (success && isMounted) {
+        const result = await attachScreenShareView(userId, containerRef.current);
+
+        if (result && result.success && isMounted) {
+          if (result.element) {
+            videoPlayerRef.current = result.element;
+          }
           console.log(`✅ Screen share attached successfully for ${displayName}`);
           setIsAttaching(false);
         } else if (isMounted) {
-          console.log(`❌ Failed to attach share view for ${displayName}`);
-          setError('Failed to attach share view');
+          console.log(`❌ Failed to attach share view for ${displayName}`, result?.error);
+          setError(result?.error?.message || 'Failed to attach share view');
           setIsAttaching(false);
         }
       } catch (err) {
@@ -1047,24 +1055,61 @@ function ScreenShareView({ userId, displayName, isCurrentUser, attachScreenShare
     };
 
     // Small delay to ensure DOM is ready
-    const timer = setTimeout(attachShare, 100);
+    const timer = setTimeout(attachShare, 150);
 
     return () => {
       isMounted = false;
       clearTimeout(timer);
       console.log(`🔌 Detaching share view for user ${userId}`);
-      detachScreenShareView(userId);
+      // detachShareView returns the element - we need to remove it from DOM
+      detachScreenShareView(userId).then((element) => {
+        if (element && element.remove) {
+          element.remove();
+        }
+        // Also clean up our ref
+        if (videoPlayerRef.current && videoPlayerRef.current.remove) {
+          videoPlayerRef.current.remove();
+        }
+      }).catch(err => {
+        console.warn(`Cleanup error for user ${userId}:`, err);
+      });
     };
   }, [userId, attachScreenShareView, detachScreenShareView, displayName]);
 
   return (
-    <div className="screen-share-item">
+    <div className="screen-share-item" style={{ position: 'relative' }}>
       <div className="screen-share-header">
         <span className="screen-share-name">
           {displayName}'s Screen {isCurrentUser && '(You)'}
         </span>
         <span className="screen-share-badge">🖥️ Sharing</span>
       </div>
+      {/* Status overlay - positioned OUTSIDE the video-player-container to avoid interference */}
+      {(isAttaching || error) && (
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          zIndex: 10,
+          background: 'rgba(0, 0, 0, 0.8)',
+          padding: '20px',
+          borderRadius: '8px',
+          pointerEvents: 'none'
+        }}>
+          {isAttaching && (
+            <div style={{ color: '#888', fontSize: '14px' }}>
+              Loading screen share...
+            </div>
+          )}
+          {error && (
+            <div style={{ color: '#ef4444', fontSize: '14px' }}>
+              Error: {error}
+            </div>
+          )}
+        </div>
+      )}
+      {/* CRITICAL: video-player-container must be empty - Zoom SDK appends video-player here */}
       <video-player-container
         ref={containerRef}
         style={{
@@ -1073,23 +1118,10 @@ function ScreenShareView({ userId, displayName, isCurrentUser, attachScreenShare
           background: '#1a1a1a',
           borderRadius: '8px',
           overflow: 'hidden',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          display: 'block',
           position: 'relative'
         }}
-      >
-        {isAttaching && (
-          <div style={{ color: '#888', fontSize: '14px' }}>
-            Loading screen share...
-          </div>
-        )}
-        {error && (
-          <div style={{ color: '#ef4444', fontSize: '14px' }}>
-            Error: {error}
-          </div>
-        )}
-      </video-player-container>
+      />
     </div>
   );
 }
