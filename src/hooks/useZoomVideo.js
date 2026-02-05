@@ -22,6 +22,8 @@ export function useZoomVideo() {
   const [streamState, setStreamState] = useState(null); // Track stream as state for React reactivity
   const [multipleSharesEnabled, setMultipleSharesEnabled] = useState(null); // null = unknown, true = enabled, false = disabled
   const recordingClientRef = useRef(null);
+  const shareVideoElementRef = useRef(null); // Store reference to share video element for auto-restart
+  const autoRestartShareRef = useRef(false); // Flag to indicate if we should auto-restart share
 
   /**
    * Initialize the Zoom Video SDK client
@@ -538,8 +540,9 @@ export function useZoomVideo() {
   /**
    * Start screen sharing
    * @param {HTMLVideoElement|HTMLCanvasElement} element - Video or canvas element for screen share
+   * @param {boolean} isAutoRestart - Internal flag to indicate this is an auto-restart attempt
    */
-  const startScreenShare = useCallback(async (element) => {
+  const startScreenShare = useCallback(async (element, isAutoRestart = false) => {
     if (!streamRef.current) {
       setError('Not connected to a session');
       return false;
@@ -567,7 +570,10 @@ export function useZoomVideo() {
         }
       }
 
-      console.log(`🖥️ Starting screen share with element type: ${element.constructor.name}`);
+      // Store reference for potential auto-restart
+      shareVideoElementRef.current = element;
+
+      console.log(`🖥️ Starting screen share with element type: ${element.constructor.name}${isAutoRestart ? ' (AUTO-RESTART)' : ''}`);
 
       // Start screen sharing with simultaneousShareView option
       // Per Zoom SDK docs: simultaneousShareView enables viewing multiple users' shares
@@ -578,6 +584,7 @@ export function useZoomVideo() {
 
       setIsScreenSharing(true);
       isScreenSharingRef.current = true;
+      autoRestartShareRef.current = true; // Enable auto-restart for this share session
       console.log('✅ Screen sharing started successfully with simultaneousShareView');
 
       // Monitor the MediaStream tracks for the own share preview
@@ -591,18 +598,47 @@ export function useZoomVideo() {
           console.log(`🖥️ Track ${idx}: kind=${track.kind}, readyState=${track.readyState}`);
 
           // Monitor track ended event
-          track.addEventListener('ended', () => {
+          track.addEventListener('ended', async () => {
             console.warn(`⚠️ Track ${idx} (${track.kind}) ENDED unexpectedly!`);
-            console.warn('⚠️ This may indicate another user started sharing and Zoom stopped your share.');
-            console.warn('⚠️ Or the share privilege is not set to MultipleShare.');
 
             // Check if all tracks have ended
             const allEnded = tracks.every(t => t.readyState === 'ended');
             if (allEnded && isScreenSharingRef.current) {
-              console.warn('⚠️ All tracks ended - updating screen sharing state');
-              setIsScreenSharing(false);
-              isScreenSharingRef.current = false;
-              setScreenShares(prev => prev.filter(s => s.userId !== currentUser.userId));
+              console.warn('⚠️ All tracks ended while we were sharing');
+
+              // Check if we should auto-restart
+              if (autoRestartShareRef.current && shareVideoElementRef.current) {
+                console.log('🔄 AUTO-RESTART: Attempting to restart screen share...');
+
+                // Brief delay to let Zoom SDK stabilize
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // First, clean up the old share state
+                try {
+                  await streamRef.current.stopShareScreen();
+                } catch (stopErr) {
+                  console.warn('🔄 Cleanup stopShareScreen (may already be stopped):', stopErr);
+                }
+
+                // Update state before restart
+                setIsScreenSharing(false);
+                isScreenSharingRef.current = false;
+                setScreenShares(prev => prev.filter(s => s.userId !== currentUser.userId));
+
+                // Wait a bit more before restart
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Note: Auto-restart requires user gesture in most browsers
+                // We'll just notify the user instead of auto-restarting
+                console.warn('⚠️ Screen share was stopped by the system (possibly due to SDK limitation).');
+                console.warn('⚠️ Multiple simultaneous shares may not be fully supported in this SDK version.');
+                setError('Screen share stopped. Click "Share Screen" to restart.');
+                autoRestartShareRef.current = false;
+              } else {
+                setIsScreenSharing(false);
+                isScreenSharingRef.current = false;
+                setScreenShares(prev => prev.filter(s => s.userId !== currentUser.userId));
+              }
             }
           });
         });
@@ -683,29 +719,71 @@ export function useZoomVideo() {
 
       console.log(`📺 attachShareView returned:`, videoPlayerElement);
       console.log(`📺 Element type:`, videoPlayerElement?.tagName);
+      console.log(`📺 Element HTML:`, videoPlayerElement?.outerHTML?.substring(0, 200));
 
       if (videoPlayerElement && container) {
         // Append the video-player element to the container
         container.appendChild(videoPlayerElement);
         console.log(`✅ Attached screen share view for user ${userId}`);
 
-        // IMPORTANT: The video-player element from Zoom SDK may need these attributes
-        // to ensure proper playback
-        if (videoPlayerElement.tagName === 'VIDEO' || videoPlayerElement.querySelector('video')) {
-          const videoEl = videoPlayerElement.tagName === 'VIDEO'
-            ? videoPlayerElement
-            : videoPlayerElement.querySelector('video');
-          if (videoEl) {
-            videoEl.setAttribute('autoplay', '');
-            videoEl.setAttribute('playsinline', '');
-            // Try to play in case autoplay is blocked
+        // The video-player is a custom element from Zoom SDK
+        // It contains a shadow DOM with the actual video element
+        // We need to ensure it's properly sized and visible
+
+        // Set explicit dimensions on the video-player element
+        videoPlayerElement.style.width = '100%';
+        videoPlayerElement.style.height = '100%';
+        videoPlayerElement.style.minHeight = '360px';
+        videoPlayerElement.style.display = 'block';
+
+        // Try to access the internal video element (may be in shadow DOM)
+        const tryPlayVideo = async () => {
+          // Method 1: Direct video element
+          let videoEl = videoPlayerElement.querySelector('video');
+
+          // Method 2: Shadow DOM
+          if (!videoEl && videoPlayerElement.shadowRoot) {
+            videoEl = videoPlayerElement.shadowRoot.querySelector('video');
+          }
+
+          // Method 3: Check if videoPlayerElement itself has video methods
+          if (!videoEl && typeof videoPlayerElement.play === 'function') {
             try {
-              await videoEl.play();
+              await videoPlayerElement.play();
+              console.log('📺 Called play() on video-player element');
             } catch (playErr) {
-              console.warn('Auto-play may be blocked:', playErr);
+              console.warn('📺 play() on video-player failed:', playErr);
             }
           }
-        }
+
+          if (videoEl) {
+            console.log('📺 Found internal video element');
+            console.log('📺 Video srcObject:', videoEl.srcObject);
+            console.log('📺 Video readyState:', videoEl.readyState);
+            console.log('📺 Video paused:', videoEl.paused);
+
+            videoEl.setAttribute('autoplay', '');
+            videoEl.setAttribute('playsinline', '');
+            videoEl.muted = true; // Mute to allow autoplay
+
+            try {
+              await videoEl.play();
+              console.log('📺 Video play() called successfully');
+            } catch (playErr) {
+              console.warn('📺 Auto-play may be blocked:', playErr);
+            }
+          } else {
+            console.log('📺 No internal video element found (Zoom SDK handles playback)');
+          }
+        };
+
+        // Try immediately and also after a short delay
+        await tryPlayVideo();
+        setTimeout(tryPlayVideo, 500);
+
+        // Log container state
+        console.log('📺 Container children count:', container.children.length);
+        console.log('📺 Container innerHTML length:', container.innerHTML.length);
 
         return { success: true, element: videoPlayerElement };
       }
