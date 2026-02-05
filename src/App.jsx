@@ -1022,9 +1022,8 @@ function ScreenShareView({ userId, displayName, isCurrentUser, attachScreenShare
       console.log(`📌 Attempting to attach share view for user ${userId} (${displayName})`);
 
       try {
-        // Clear any existing content
-        containerRef.current.innerHTML = '';
-
+        // Don't clear innerHTML - it removes React's elements and causes errors
+        // Just append the video-player element returned by attachShareView
         setIsAttaching(true);
         setError(null);
 
