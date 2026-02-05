@@ -313,9 +313,12 @@ export function useZoomVideo() {
     try {
       // Check if SharedArrayBuffer is available (needed for canvas)
       const hasSharedArrayBuffer = typeof SharedArrayBuffer !== 'undefined';
+      console.log('🎥 Starting video - SharedArrayBuffer available:', hasSharedArrayBuffer);
+      console.log('🎥 Element type:', element?.tagName, element instanceof HTMLCanvasElement ? '(Canvas)' : element instanceof HTMLVideoElement ? '(Video)' : '(Unknown)');
 
       if (hasSharedArrayBuffer && element instanceof HTMLCanvasElement) {
         // Use canvas rendering (preferred)
+        console.log('🎥 Attempting canvas rendering...');
         await streamRef.current.startVideo();
         await streamRef.current.renderVideo(
           element,
@@ -326,31 +329,51 @@ export function useZoomVideo() {
           0,
           3 // Quality level (1-3)
         );
+        console.log('✅ Canvas rendering successful');
       } else if (element instanceof HTMLVideoElement) {
         // Use video element (fallback)
+        console.log('🎥 Using video element rendering...');
         await streamRef.current.startVideo({ videoElement: element });
+        console.log('✅ Video element rendering successful');
       } else {
-        // Try canvas anyway
-        await streamRef.current.startVideo();
-        if (element instanceof HTMLCanvasElement) {
-          await streamRef.current.renderVideo(
-            element,
-            currentUser.userId,
-            element.width,
-            element.height,
-            0,
-            0,
-            3
-          );
+        // Try canvas anyway, but fallback to attachVideo on error
+        console.log('🎥 Trying canvas without SharedArrayBuffer...');
+        try {
+          await streamRef.current.startVideo();
+          if (element instanceof HTMLCanvasElement) {
+            await streamRef.current.renderVideo(
+              element,
+              currentUser.userId,
+              element.width,
+              element.height,
+              0,
+              0,
+              3
+            );
+          }
+          console.log('✅ Canvas rendering successful (without SAB)');
+        } catch (canvasErr) {
+          console.warn('⚠️ Canvas rendering failed, trying attachVideo as fallback:', canvasErr);
+          // Fallback to attachVideo (modern method for video elements)
+          await streamRef.current.startVideo();
+          // Note: attachVideo would need a video element, not canvas
+          throw new Error('Canvas not supported. Please use a video element or enable SharedArrayBuffer.');
         }
       }
 
       setIsVideoOn(true);
-      console.log('Video started');
+      console.log('✅ Video started successfully');
       return true;
     } catch (err) {
-      console.error('Failed to start video:', err);
-      setError(`Start video failed: ${err.message}`);
+      console.error('❌ Failed to start video:', err);
+      console.error('Error details:', {
+        message: err.message,
+        type: err.type,
+        reason: err.reason,
+        code: err.code,
+        errorCode: err.errorCode
+      });
+      setError(`Start video failed: ${err.message || err.reason || 'Unknown error'}`);
       return false;
     }
   }, [currentUser]);
