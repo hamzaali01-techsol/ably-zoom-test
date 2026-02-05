@@ -2094,39 +2094,6 @@ function DirectJoinTab() {
             </div>
           </div>
 
-          {/* Other Users' Screen Shares */}
-          <div className="screen-shares-container">
-            <div className="section-header">
-              Other Screen Shares ({screenShares.filter(s => !s.isCurrentUser).length})
-              <span style={{ fontSize: '12px', fontWeight: 'normal', marginLeft: '10px', color: '#888' }}>
-                Multiple simultaneous shares enabled
-              </span>
-            </div>
-            <div className="screen-shares-grid">
-              {screenShares.filter(s => !s.isCurrentUser).length === 0 ? (
-                <div className="empty-state">
-                  <p>No other users sharing screens.</p>
-                  <p style={{ marginTop: '10px', color: '#888', fontSize: '13px' }}>
-                    Other participants' screen shares will appear here!
-                  </p>
-                </div>
-              ) : (
-                screenShares
-                  .filter(s => !s.isCurrentUser)
-                  .map((share) => (
-                    <ScreenShareView
-                      key={share.userId}
-                      userId={share.userId}
-                      displayName={share.displayName}
-                      isCurrentUser={false}
-                      attachScreenShareView={attachScreenShareView}
-                      detachScreenShareView={detachScreenShareView}
-                    />
-                  ))
-              )}
-            </div>
-          </div>
-
           {/* Remote Participants Video */}
           <div className="remote-videos-container">
             <div className="section-header">
