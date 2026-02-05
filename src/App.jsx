@@ -1189,6 +1189,7 @@ function VideoTab() {
     isRecording,
     currentUser,
     sessionInfo,
+    multipleSharesEnabled,
     initialize,
     join,
     leave,
@@ -1506,6 +1507,26 @@ function VideoTab() {
                   <span>⚫ Recording Not Active</span>
                 )}
               </div>
+
+              {/* Multiple Share Warning */}
+              {multipleSharesEnabled === false && (
+                <div style={{
+                  marginTop: '15px',
+                  padding: '12px',
+                  borderRadius: '6px',
+                  background: '#f59e0b',
+                  color: '#78350f',
+                  textAlign: 'left',
+                  fontSize: '13px',
+                  lineHeight: '1.5'
+                }}>
+                  <div style={{ fontWeight: '600', marginBottom: '6px' }}>⚠️ Multiple Screen Shares Disabled</div>
+                  <div style={{ fontSize: '12px' }}>
+                    Only ONE person can share at a time. When a second person starts sharing, the first share will stop.
+                    To enable multiple simultaneous shares, the FIRST person to join (who becomes host) must join before others.
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1707,6 +1728,7 @@ function DirectJoinTab() {
     isRecording,
     currentUser,
     sessionInfo,
+    multipleSharesEnabled,
     initialize,
     join,
     leave,
@@ -2022,6 +2044,26 @@ function DirectJoinTab() {
                   <span>⚫ Recording Not Active</span>
                 )}
               </div>
+
+              {/* Multiple Share Warning */}
+              {multipleSharesEnabled === false && (
+                <div style={{
+                  marginTop: '15px',
+                  padding: '12px',
+                  borderRadius: '6px',
+                  background: '#f59e0b',
+                  color: '#78350f',
+                  textAlign: 'left',
+                  fontSize: '13px',
+                  lineHeight: '1.5'
+                }}>
+                  <div style={{ fontWeight: '600', marginBottom: '6px' }}>⚠️ Multiple Screen Shares Disabled</div>
+                  <div style={{ fontSize: '12px' }}>
+                    Only ONE person can share at a time. When a second person starts sharing, the first share will stop.
+                    To enable multiple simultaneous shares, the FIRST person to join (who becomes host) must join before others.
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

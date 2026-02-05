@@ -20,6 +20,7 @@ export function useZoomVideo() {
   const [currentUser, setCurrentUser] = useState(null);
   const [sessionInfo, setSessionInfo] = useState(null);
   const [streamState, setStreamState] = useState(null); // Track stream as state for React reactivity
+  const [multipleSharesEnabled, setMultipleSharesEnabled] = useState(null); // null = unknown, true = enabled, false = disabled
   const recordingClientRef = useRef(null);
 
   /**
@@ -106,26 +107,51 @@ export function useZoomVideo() {
         console.log('User info:', userInfo);
         console.log('Is host?', userInfo?.isHost);
 
-        if (!userInfo?.isHost) {
-          console.warn('⚠️ Current user is NOT host. Multiple screen share may not work without host privilege!');
-        }
+        if (userInfo?.isHost) {
+          // Only host can set share privilege - SharePrivilege values: 0 = OneShare (default), 1 = MultipleShare
+          console.log('🎯 Current user IS host - setting share privilege to MultipleShare');
+          await streamRef.current.setSharePrivilege(1);
+          console.log('✅ Multiple screen share privilege set to MultipleShare (1)');
 
-        // SharePrivilege values: 0 = OneShare (default), 1 = MultipleShare
-        await streamRef.current.setSharePrivilege(1);
-        console.log('✅ Multiple screen share privilege set to MultipleShare (1)');
+          // Verify the privilege was set
+          const currentPrivilege = await streamRef.current.getSharePrivilege?.();
+          console.log('✅ Verified current share privilege:', currentPrivilege, currentPrivilege === 1 ? '(MultipleShare)' : '(OneShare)');
 
-        // Verify the privilege was set
-        const currentPrivilege = await streamRef.current.getSharePrivilege?.();
-        console.log('✅ Verified current share privilege:', currentPrivilege, currentPrivilege === 1 ? '(MultipleShare)' : '(OneShare)');
+          if (currentPrivilege === 1) {
+            setMultipleSharesEnabled(true);
+          } else {
+            console.error('❌ WARNING: Share privilege is NOT set to MultipleShare! Current value:', currentPrivilege);
+            console.error('This means only ONE person can share at a time.');
+            setMultipleSharesEnabled(false);
+          }
+        } else {
+          console.warn('⚠️ Current user is NOT host. Cannot set share privilege.');
+          console.warn('⚠️ Multiple simultaneous screen shares will only work if the HOST enables it.');
+          console.warn('⚠️ If you need multiple shares, make sure the FIRST person to join sets it up.');
 
-        if (currentPrivilege !== 1) {
-          console.error('❌ WARNING: Share privilege is NOT set to MultipleShare! Current value:', currentPrivilege);
-          console.error('This means only ONE person can share at a time.');
+          // Check current privilege (read-only for non-hosts)
+          const currentPrivilege = await streamRef.current.getSharePrivilege?.();
+          console.log('📊 Current share privilege:', currentPrivilege, currentPrivilege === 1 ? '(MultipleShare ✅)' : '(OneShare ⚠️ - only one user can share at a time)');
+          setMultipleSharesEnabled(currentPrivilege === 1);
         }
       } catch (err) {
-        console.error('❌ Failed to enable multiple screen share:', err);
+        console.error('❌ Failed to check/set screen share privilege:', err);
         console.error('This could prevent multiple simultaneous shares from working');
+        setMultipleSharesEnabled(false);
       }
+
+      // Re-check share privilege after a delay to handle race conditions
+      // (in case another user sets it after we join)
+      setTimeout(async () => {
+        try {
+          if (!streamRef.current) return;
+          const currentPrivilege = await streamRef.current.getSharePrivilege?.();
+          console.log('🔄 Re-checked share privilege after delay:', currentPrivilege, currentPrivilege === 1 ? '(MultipleShare ✅)' : '(OneShare ⚠️)');
+          setMultipleSharesEnabled(currentPrivilege === 1);
+        } catch (err) {
+          console.error('Failed to re-check share privilege:', err);
+        }
+      }, 3000); // Check again after 3 seconds
 
       // Set up event listeners
       setupEventListeners();
@@ -726,6 +752,7 @@ export function useZoomVideo() {
       isScreenSharingRef.current = false;
       setScreenShares([]);
       setIsRecording(false);
+      setMultipleSharesEnabled(null);
       setError(null);
     }
   }, []);
@@ -764,6 +791,7 @@ export function useZoomVideo() {
     isRecording,
     currentUser,
     sessionInfo,
+    multipleSharesEnabled, // null = unknown, true = enabled, false = disabled
 
     // Methods
     initialize,
