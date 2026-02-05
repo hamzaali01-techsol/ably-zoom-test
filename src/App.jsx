@@ -1375,6 +1375,32 @@ function VideoTab() {
     }
   }, [isRecording, addLog]);
 
+  // DIAGNOSTIC: Monitor video element when other users start sharing
+  useEffect(() => {
+    if (isScreenSharing && shareVideoRef.current && screenShares.length > 1) {
+      const otherShares = screenShares.filter(s => !s.isCurrentUser);
+      if (otherShares.length > 0) {
+        console.log('🔍 DIAGNOSTIC: Other users are sharing. Checking our video element...');
+        console.log('🔍 Video element exists:', !!shareVideoRef.current);
+        console.log('🔍 Video srcObject:', shareVideoRef.current.srcObject);
+        console.log('🔍 Video readyState:', shareVideoRef.current.readyState);
+        console.log('🔍 Video paused:', shareVideoRef.current.paused);
+        console.log('🔍 Video muted:', shareVideoRef.current.muted);
+        console.log('🔍 Video currentTime:', shareVideoRef.current.currentTime);
+
+        if (shareVideoRef.current.srcObject) {
+          const tracks = shareVideoRef.current.srcObject.getTracks();
+          console.log('🔍 Media stream tracks:', tracks.length);
+          tracks.forEach((track, idx) => {
+            console.log(`🔍 Track ${idx}: kind=${track.kind}, enabled=${track.enabled}, readyState=${track.readyState}, muted=${track.muted}`);
+          });
+        } else {
+          console.log('🔍 ⚠️ WARNING: srcObject is NULL! This is why the screen is black!');
+        }
+      }
+    }
+  }, [screenShares, isScreenSharing]);
+
   return (
     <div className="tab-panel video-tab">
       <div className="tab-grid">
@@ -1895,6 +1921,32 @@ function DirectJoinTab() {
       addLog('⏹️ RECORDING STOPPED - Cloud recording has ended', 'info');
     }
   }, [isRecording, addLog]);
+
+  // DIAGNOSTIC: Monitor video element when other users start sharing
+  useEffect(() => {
+    if (isScreenSharing && shareVideoRef.current && screenShares.length > 1) {
+      const otherShares = screenShares.filter(s => !s.isCurrentUser);
+      if (otherShares.length > 0) {
+        console.log('🔍 DIAGNOSTIC: Other users are sharing. Checking our video element...');
+        console.log('🔍 Video element exists:', !!shareVideoRef.current);
+        console.log('🔍 Video srcObject:', shareVideoRef.current.srcObject);
+        console.log('🔍 Video readyState:', shareVideoRef.current.readyState);
+        console.log('🔍 Video paused:', shareVideoRef.current.paused);
+        console.log('🔍 Video muted:', shareVideoRef.current.muted);
+        console.log('🔍 Video currentTime:', shareVideoRef.current.currentTime);
+
+        if (shareVideoRef.current.srcObject) {
+          const tracks = shareVideoRef.current.srcObject.getTracks();
+          console.log('🔍 Media stream tracks:', tracks.length);
+          tracks.forEach((track, idx) => {
+            console.log(`🔍 Track ${idx}: kind=${track.kind}, enabled=${track.enabled}, readyState=${track.readyState}, muted=${track.muted}`);
+          });
+        } else {
+          console.log('🔍 ⚠️ WARNING: srcObject is NULL! This is why the screen is black!');
+        }
+      }
+    }
+  }, [screenShares, isScreenSharing]);
 
   return (
     <div className="tab-panel video-tab">

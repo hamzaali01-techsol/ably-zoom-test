@@ -264,6 +264,13 @@ export function useZoomVideo() {
         // Note: screenShares is managed manually in startShareScreen/stopShareScreen
       } else {
         console.log(`🔵 Active share change for OTHER user ${payload.userId}: ${payload.state}`);
+
+        // DIAGNOSTIC: Check if this affects our local video element
+        if (payload.state === 'Active' && isScreenSharingRef.current) {
+          console.log('🔍 DIAGNOSTIC: Another user started sharing while we are sharing');
+          console.log('🔍 Checking our video element status...');
+          // This will be logged by the component that holds the video ref
+        }
       }
     });
 
