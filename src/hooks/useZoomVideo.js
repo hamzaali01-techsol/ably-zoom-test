@@ -555,13 +555,15 @@ export function useZoomVideo() {
 
       const currentUser = clientRef.current.getCurrentUserInfo();
 
-      // Start screen sharing WITHOUT simultaneousShareView option
-      // The simultaneousShareView option may have been causing tracks to end
-      // when other users start sharing. MultipleShare privilege should be enough.
-      await streamRef.current.startShareScreen(videoElement);
+      // Start screen sharing with simultaneousShareView option
+      // Per Zoom SDK docs: simultaneousShareView enables viewing multiple users' shares
+      // Required when using setSharePrivilege(MultipleShare)
+      await streamRef.current.startShareScreen(videoElement, {
+        simultaneousShareView: true
+      });
       setIsScreenSharing(true);
       isScreenSharingRef.current = true;
-      console.log('✅ Screen sharing started successfully (without simultaneousShareView)');
+      console.log('✅ Screen sharing started successfully with simultaneousShareView');
 
       // Manually add current user to screenShares since events might not fire reliably
       setScreenShares(prev => {
